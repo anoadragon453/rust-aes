@@ -113,7 +113,7 @@ fn sub_bytes(state: &mut Matrix<u8>, sbox: Matrix<u8>) -> &mut Matrix<u8> {
 
             // Now get the corresponding row,col from the sbox
             // And overwrite the state with it
-            state.set(i, j, sbox.get((hex_col as usize), (hex_row as usize)));
+            state.set(i, j, sbox.get((hex_row as usize), (hex_col as usize)));
         }
     }
     state
