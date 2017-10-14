@@ -137,7 +137,8 @@ fn add_round_key(state: &mut Matrix<u8>) {
  * contained at a specific row and col in the state.
  * The s-box is the same for all implementations of aes.
  */
-fn sub_bytes(state: &mut Matrix<u8>, sbox: Matrix<u8>) {
+fn sub_bytes(state: &mut Matrix<u8>) {
+    let sbox = get_sbox();
     for i in 0..state.num_rows()  {
         for j in 0..state.num_cols()  {
             let byte = state.get(i, j);
@@ -150,6 +151,19 @@ fn sub_bytes(state: &mut Matrix<u8>, sbox: Matrix<u8>) {
             // And overwrite the state with it
             state.set(i, j, sbox.get((hex_row as usize), (hex_col as usize)));
         }
+    }
+}
+
+fn encrypt_state_block(state: &mut Matrix<u8>) {
+    // Initial round
+    add_round_key(state);
+
+    // Intermediate and final round
+    for round in 0..10 {
+        sub_bytes(state);
+        shift_rows(state);
+        if round != 9 {mix_columns(state);}
+        add_round_key(state);
     }
 }
 
@@ -217,7 +231,7 @@ fn test_sub_bytes() {
     let mut state = matrix::from_elems(4, 4, &state_elems);
     let output = matrix::from_elems(4, 4, &output_elems);
 
-    sub_bytes(&mut state, get_sbox());
+    sub_bytes(&mut state);
 
     print_matrix(&state);
     print_matrix(&output);
