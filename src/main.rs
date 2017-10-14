@@ -3,6 +3,7 @@ extern crate rustc_serialize;
 
 use std::io;
 use std::io::prelude::*;
+use std::ops::Mul;
 use numrs::matrix;
 use numrs::matrix::Matrix;
 use rustc_serialize::hex::{ToHex};
@@ -41,11 +42,21 @@ fn get_rcon() -> Matrix<u8> {
     rcon
 }
 
+fn get_fixed_matrix() -> Matrix<u32> {
+    let fixed_elems = [
+    2, 3, 1, 1,
+    1, 2, 3, 1,
+    1, 1, 2, 3,
+    3, 1, 1, 2];
+    let fixed_matrix = matrix::from_elems(4, 4, &fixed_elems);
+    fixed_matrix
+}
+
 /*
  * matrix_row_rotate: Helper function to rotate a row of bytes a given
  * amount of iterations from left-to-right
  */
-fn matrix_row_rotate(m: &mut Matrix<u8>, row: usize, iters: usize) -> &mut Matrix<u8> {
+fn matrix_row_rotate(m: &mut Matrix<u8>, row: usize, iters: usize) {
     // Reduce the amount of iterations to a value between 0-3 inclusive
     let iterations = iters % 4;
 
@@ -60,27 +71,63 @@ fn matrix_row_rotate(m: &mut Matrix<u8>, row: usize, iters: usize) -> &mut Matri
 
         print_matrix(&m);
     }
-
-    m
 }
 
 /*
  * shift_rows: Performs the ShiftRows operation of Rijndael
  * For each row, depending on its depth, we shift it by that number
  */
-fn shift_rows(state: &mut Matrix<u8>) -> &mut Matrix<u8> {
+fn shift_rows(state: &mut Matrix<u8>) {
     for depth in 1..state.num_rows() {
         matrix_row_rotate(state, depth, depth);
     }
-    state
 }
 
-fn mix_columns(state: &mut Matrix<u8>) -> &mut Matrix<u8> {
-    state
+fn mix_single_column(col: &mut[u8; 4]) {
+    // Ref: https://en.wikipedia.org/wiki/Rijndael_MixColumns
+    // The array 'a' is simply a copy of the input array col
+    // The array 'b' is each element of the array 'a' multiplied by 2
+    // in Rijndael's Galois field
+    let mut a = [0u8; 4];
+    let mut b = [0u8; 4];
+    let mut h = 0u8;
+
+    // a[n] ^ b[n] is element n multiplied by 3 in Rijndael's Galois field
+    for c in 0..4 {
+        a[c] = col[c];
+
+        // h is 0xff if the high bit of r[c] is set, 0 otherwise
+        h = ((col[c] as i8) >> 7) as u8;
+        // implicitly removes high bit because b[c] is an 8-bit char,
+        // so we xor by 0x1b and not 0x11b in the next line
+        b[c] = col[c] << 1; 
+        b[c] ^= 0x1b & h; // Rijndael's Galois field
+    }
+    col[0] = b[0] ^ a[3] ^ a[2] ^ b[1] ^ a[1]; // 2 * a0 + a3 + a2 + 3 * a1
+    col[1] = b[1] ^ a[0] ^ a[3] ^ b[2] ^ a[2]; // 2 * a1 + a0 + a3 + 3 * a2
+    col[2] = b[2] ^ a[1] ^ a[0] ^ b[3] ^ a[3]; // 2 * a2 + a1 + a0 + 3 * a3
+    col[3] = b[3] ^ a[2] ^ a[1] ^ b[0] ^ a[0]; // 2 * a3 + a2 + a1 + 3 * a0
 }
 
-fn add_round_key(state: &mut Matrix<u8>) -> &mut Matrix<u8> {
-    state
+fn mix_columns(state: &mut Matrix<u8>) {
+    for col in 0..state.num_cols() {
+        // Get a column from the state matrix
+        let mut m_col = [state.get(0, col),
+                         state.get(1, col),
+                         state.get(2, col),
+                         state.get(3, col)];
+
+        // Perform mix column
+        mix_single_column(&mut m_col);
+
+        // Substitute the result for the original column in the state
+        for row in 0..state.num_rows() {
+            state.set(row, col, m_col[row]);
+        }
+    }
+}
+
+fn add_round_key(state: &mut Matrix<u8>) {
 }
 
 /*
@@ -90,7 +137,7 @@ fn add_round_key(state: &mut Matrix<u8>) -> &mut Matrix<u8> {
  * contained at a specific row and col in the state.
  * The s-box is the same for all implementations of aes.
  */
-fn sub_bytes(state: &mut Matrix<u8>, sbox: Matrix<u8>) -> &mut Matrix<u8> {
+fn sub_bytes(state: &mut Matrix<u8>, sbox: Matrix<u8>) {
     for i in 0..state.num_rows()  {
         for j in 0..state.num_cols()  {
             let byte = state.get(i, j);
@@ -104,7 +151,6 @@ fn sub_bytes(state: &mut Matrix<u8>, sbox: Matrix<u8>) -> &mut Matrix<u8> {
             state.set(i, j, sbox.get((hex_row as usize), (hex_col as usize)));
         }
     }
-    state
 }
 
 fn aes(data: &str) -> String {
@@ -137,6 +183,18 @@ fn print_matrix(m: &Matrix<u8>) {
         print!("|");
         for j in 0..m.num_cols() {
             print!("{:02x}|", m.get(i,j))
+        }
+        println!("");
+    }
+}
+
+fn print_matrix32(m: &Matrix<u32>) {
+    println!();
+    for i in 0..m.num_rows() {
+        print!("|");
+        for j in 0..m.num_cols() {
+            //print!("{:02x}|", (m.get(i,j) as u8));
+            print!("{}|", m.get(i,j));
         }
         println!("");
     }
@@ -185,6 +243,31 @@ fn test_shift_rows() {
     let output = matrix::from_elems(4, 4, &output_elems);
 
     shift_rows(&mut state);
+
+    print_matrix(&state);
+    print_matrix(&output);
+
+    assert!(output == state);
+}
+
+#[test]
+fn test_mix_columns() {
+    let state_elems = [
+        0xd4, 0xe0, 0xb8, 0x1e,
+        0xbf, 0xb4, 0x41, 0x27, 
+        0x5d, 0x52, 0x11, 0x98, 
+        0x30, 0xae, 0xf1, 0xe5];
+
+    let output_elems = [
+        0x04, 0xe0, 0x48, 0x28,
+        0x66, 0xcb, 0xf8, 0x06, 
+        0x81, 0x19, 0xd3, 0x26, 
+        0xe5, 0x9a, 0x7a, 0x4c];
+
+    let mut state = matrix::from_elems(4, 4, &state_elems);
+    let output = matrix::from_elems(4, 4, &output_elems);
+
+    mix_columns(&mut state);
 
     print_matrix(&state);
     print_matrix(&output);
