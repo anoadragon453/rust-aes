@@ -3,7 +3,6 @@ extern crate rustc_serialize;
 
 use std::io;
 use std::io::prelude::*;
-use std::ops::Mul;
 use numrs::matrix;
 use numrs::matrix::Matrix;
 use rustc_serialize::hex::{ToHex};
@@ -35,21 +34,11 @@ fn get_sbox() -> Matrix<u8> {
  * Round constant word array, Rcon.
  * Only first 11 values are used for AES-128.
  */
-fn get_rcon() -> Matrix<u8> {
+fn get_rcon_col(col: usize) -> Matrix<u8> {
     let rcon_elems = [
         0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
-    let rcon = matrix::from_elems(16, 16, &rcon_elems);
-    rcon
-}
-
-fn get_fixed_matrix() -> Matrix<u32> {
-    let fixed_elems = [
-    2, 3, 1, 1,
-    1, 2, 3, 1,
-    1, 1, 2, 3,
-    3, 1, 1, 2];
-    let fixed_matrix = matrix::from_elems(4, 4, &fixed_elems);
-    fixed_matrix
+    let m = matrix::from_elems(4, 1, &[rcon_elems[col], 0, 0, 0]);
+    m
 }
 
 /*
@@ -90,14 +79,14 @@ fn mix_single_column(col: &mut[u8; 4]) {
     // in Rijndael's Galois field
     let mut a = [0u8; 4];
     let mut b = [0u8; 4];
-    let mut h = 0u8;
 
     // a[n] ^ b[n] is element n multiplied by 3 in Rijndael's Galois field
     for c in 0..4 {
         a[c] = col[c];
 
         // h is 0xff if the high bit of r[c] is set, 0 otherwise
-        h = ((col[c] as i8) >> 7) as u8;
+        let h = ((col[c] as i8) >> 7) as u8;
+
         // implicitly removes high bit because b[c] is an 8-bit char,
         // so we xor by 0x1b and not 0x11b in the next line
         b[c] = col[c] << 1; 
@@ -127,11 +116,54 @@ fn mix_columns(state: &mut Matrix<u8>) {
     }
 }
 
-fn add_round_key(state: &mut Matrix<u8>) {
+fn xor_matricies(m1: &mut Matrix<u8>, m2: & Matrix<u8>) {
+    for i in 0..m1.num_rows() {
+        for j in 0..m2.num_cols() {
+            let val = m1.get(i, j) ^ m2.get(i, j);
+            m1.set(i, j, val);
+        }
+    }
+}
+
+fn key_expansion(round_key: &mut Matrix<u8>, key: &Matrix<u8>) {
+    // The first round key is the key itself
+    for i in 0..round_key.num_rows() {
+        round_key.set(0, i, key.get(0, i));
+        round_key.set(1, i, key.get(1, i));
+        round_key.set(2, i, key.get(2, i));
+        round_key.set(3, i, key.get(3, i));
+    }
+
+    // All other round keys are found from the previous round keys
+    for i in 4..4*10 {
+        let mut col = matrix::from_elems(1, 4, &[round_key.get(0, (i-1)),
+                                                 round_key.get(1, (i-1)),
+                                                 round_key.get(2, (i-1)),
+                                                 round_key.get(3, (i-1))]);
+
+        if i % 4 == 0 {
+            // Shift the 4 bytes in a word to the left once
+            // [a0,a1,a2,a3] becomes [a1,a2,a3,a0]
+            matrix_row_rotate(&mut col, 1, 1);
+
+            // Substitue the bytes within the column using the contents of the s-box
+            sub_bytes(&mut col);
+
+            // xor the col with the respective rcon column
+            xor_matricies(&mut col, &get_rcon_col((i / 4) - 1));
+        }
+
+        // xor the col with the previous i-4 col of the round key
+        let init_col = matrix::from_elems(1, 4, &[round_key.get(0, (i-4)),
+                                                  round_key.get(1, (i-4)),
+                                                  round_key.get(2, (i-4)),
+                                                  round_key.get(3, (i-4))]);
+        xor_matricies(&mut col, &init_col);
+    }
 }
 
 /*
- * sub_byte: performs the SubBytes operation of Rijndael
+ * sub_bytes: performs the SubBytes operation of Rijndael
  * SubBytes substitues an item in the state with another in the s-box,
  * depending on the first and second characters of the hexadecimal byte
  * contained at a specific row and col in the state.
@@ -154,28 +186,67 @@ fn sub_bytes(state: &mut Matrix<u8>) {
     }
 }
 
-fn encrypt_state_block(state: &mut Matrix<u8>) {
+fn encrypt_state_block(state: &mut Matrix<u8>, round_key: &Matrix<u8>) {
     // Initial round
-    add_round_key(state);
+    xor_matricies(state, round_key);
 
     // Intermediate and final round
     for round in 0..10 {
         sub_bytes(state);
         shift_rows(state);
         if round != 9 {mix_columns(state);}
-        add_round_key(state);
+        xor_matricies(state, round_key);
     }
 }
 
-fn aes(data: &str) -> String {
+fn decode_and_append(state: &Matrix<u8>, string: &mut String) {
+    for i in 0..state.num_rows() {
+        for j in 0..state.num_cols() {
+            string.push(state.get(j, i) as char);
+        }
+    }
+}
+
+fn aes(data: &str, key: &str) -> String {
+    let mut encrypted_string = String::new();
     let byte_array = data.as_bytes().to_hex();
-    for byte in byte_array.chars() {
-        println!("{:?}", byte);
+
+    // Perform key expansion
+    let key_matrix = matrix::from_elems(4, 4, key.as_bytes());
+    let mut round_key = Matrix::new(4, 4*10, 0u8);
+    key_expansion(&mut round_key, &key_matrix);
+
+    // Loop through each 16 bytes of the provided string and encrypt separately
+    let mut index = 0;
+    loop {
+        let mut state: Matrix<u8>;
+        if index + 16 > byte_array.len() {
+            // Pad rest of matrix with zeros
+            let mut state_elem = [0u8, 16];
+            let padding = byte_array.len() - index;
+            for i in index..padding {
+                state_elem[i] = byte_array.as_bytes()[i + index];
+            }
+            state = matrix::from_elems(4, 4, &state_elem);
+        } else {
+            state = matrix::from_elems(4, 4, &byte_array.as_bytes()[index..index+16]);
+        }
+
+        encrypt_state_block(&mut state, &round_key);
+        decode_and_append(&state, &mut encrypted_string);
+
+        index += 16;
+
+        // Break once we've reached the end of the string
+        if index >= byte_array.len() {
+            break;
+        }
     }
     byte_array
 }
 
 fn main() {
+    let key = "0000000000000000";
     let stdin = io::stdin();
 
     println!("😃 Type anything and press enter...");
@@ -185,7 +256,7 @@ fn main() {
             println!("Empty input. Terminating...");
             break;
         }
-        println!("{}", aes(&input));
+        println!("{}", aes(&input, &key));
     }
 }
 
@@ -197,18 +268,6 @@ fn print_matrix(m: &Matrix<u8>) {
         print!("|");
         for j in 0..m.num_cols() {
             print!("{:02x}|", m.get(i,j))
-        }
-        println!("");
-    }
-}
-
-fn print_matrix32(m: &Matrix<u32>) {
-    println!();
-    for i in 0..m.num_rows() {
-        print!("|");
-        for j in 0..m.num_cols() {
-            //print!("{:02x}|", (m.get(i,j) as u8));
-            print!("{}|", m.get(i,j));
         }
         println!("");
     }
