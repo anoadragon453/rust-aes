@@ -233,12 +233,16 @@ fn aes(data: &str, key: &[u8]) -> String {
         let mut state: Matrix<u8>;
         if index + 16 > byte_array.len() {
             // Pad rest of matrix with zeros
-            let mut state_elem = [0u8; 16];
-            let padding = byte_array.len() - index;
-            for i in index..padding {
-                state_elem[i] = byte_array.as_bytes()[i + index];
+            state = matrix::from_elems(4, 4, &[0u8; 16]);
+            for j in 0..state.num_cols() {
+                for i in 0..state.num_rows() {
+                    if index >= byte_array.len() {
+                        break;
+                    }
+                    state.set(i, j, byte_array.as_bytes()[index]);
+                    index += 1;
+                }
             }
-            state = matrix::from_elems(4, 4, &state_elem);
         } else {
             state = matrix::from_elems(4, 4, &byte_array.as_bytes()[index..index+16]);
         }
