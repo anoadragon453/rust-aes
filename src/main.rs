@@ -8,7 +8,7 @@ use numrs::matrix::Matrix;
 use rustc_serialize::hex::{ToHex};
 
 fn get_sbox() -> Matrix<u8> {
-    let sbox_elems = [
+    let sbox = [
         0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
         0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
         0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
@@ -26,7 +26,7 @@ fn get_sbox() -> Matrix<u8> {
         0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94, 0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF,
         0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16];
 
-    let sbox = matrix::from_elems(16, 16, &sbox_elems);
+    let sbox = matrix::from_elems(16, 16, &sbox);
     sbox
 }
 
@@ -35,10 +35,10 @@ fn get_sbox() -> Matrix<u8> {
  * Only first 11 values are used for AES-128.
  */
 fn get_rcon_col(col: usize) -> Matrix<u8> {
-    let rcon_elems = [
+    let rcon = [
         0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
-    let m = matrix::from_elems(4, 1, &[rcon_elems[col], 0, 0, 0]);
-    m
+    let rcon = matrix::from_elems(4, 1, &[rcon[col], 0, 0, 0]);
+    rcon
 }
 
 /*
@@ -218,12 +218,12 @@ fn decode_and_append(state: &Matrix<u8>, string: &mut String) {
     }
 }
 
-fn aes(data: &str, key: &str) -> String {
+fn aes(data: &str, key: &[u8]) -> String {
     let mut encrypted_string = String::new();
     let byte_array = data.as_bytes().to_hex();
 
     // Perform key expansion
-    let key_matrix = matrix::from_elems(4, 4, key.as_bytes());
+    let key_matrix = matrix::from_elems(4, 4, key);
     let mut round_key = Matrix::new(4, 4*10, 0u8);
     key_expansion(&mut round_key, &key_matrix);
 
@@ -235,7 +235,6 @@ fn aes(data: &str, key: &str) -> String {
             // Pad rest of matrix with zeros
             let mut state_elem = [0u8; 16];
             let padding = byte_array.len() - index;
-            //println!("index is {}, padding is {}, total len is {}, {:?}", index, padding, byte_array.len(), byte_array);
             for i in index..padding {
                 state_elem[i] = byte_array.as_bytes()[i + index];
             }
@@ -244,6 +243,8 @@ fn aes(data: &str, key: &str) -> String {
             state = matrix::from_elems(4, 4, &byte_array.as_bytes()[index..index+16]);
         }
 
+        println!("Encrypting matrix");
+        print_matrix(&state);
         encrypt_state_block(&mut state, &round_key);
         decode_and_append(&state, &mut encrypted_string);
 
@@ -258,7 +259,7 @@ fn aes(data: &str, key: &str) -> String {
 }
 
 fn main() {
-    let key = "0000000000000000";
+    let key = &[0u8; 16];
     let stdin = io::stdin();
 
     println!("😃 Type anything and press enter...");
@@ -277,8 +278,12 @@ fn main() {
             println!("Empty input. Terminating...");
             break;
         }
-        let encrypted_string = aes(&input, &key);
-        println!("As hex: {}\n", encrypted_string.as_bytes().to_hex());
+
+        // Remove newline character from string
+        input.pop();
+
+        let encrypted_string = aes(&input, key);
+        println!("Result: {}\n", encrypted_string.as_bytes().to_hex());
     }
 }
 
@@ -298,20 +303,20 @@ fn print_matrix(m: &Matrix<u8>) {
 
 #[test]
 fn test_sub_bytes() {
-    let state_elems = [
+    let state = [
         0x19, 0xa0, 0x9a, 0xe9,
         0x3d, 0xf4, 0xc6, 0xf8,
         0xe3, 0xe2, 0x8d, 0x48,
         0xbe, 0x2b, 0x2a, 0x08];
 
-    let output_elems = [
+    let output = [
         0xd4, 0xe0, 0xb8, 0x1e,
         0x27, 0xbf, 0xb4, 0x41,
         0x11, 0x98, 0x5d, 0x52,
         0xae, 0xf1, 0xe5, 0x30];
 
-    let mut state = matrix::from_elems(4, 4, &state_elems);
-    let output = matrix::from_elems(4, 4, &output_elems);
+    let mut state = matrix::from_elems(4, 4, &state);
+    let output = matrix::from_elems(4, 4, &output);
 
     sub_bytes(&mut state);
 
@@ -323,20 +328,20 @@ fn test_sub_bytes() {
 
 #[test]
 fn test_shift_rows() {
-    let state_elems = [
+    let state = [
         0xd4, 0xe0, 0xb8, 0x1e,
         0x27, 0xbf, 0xb4, 0x41,
         0x11, 0x98, 0x5d, 0x52,
         0xae, 0xf1, 0xe5, 0x30];
 
-    let output_elems = [
+    let output = [
         0xd4, 0xe0, 0xb8, 0x1e,
         0xbf, 0xb4, 0x41, 0x27, 
         0x5d, 0x52, 0x11, 0x98, 
         0x30, 0xae, 0xf1, 0xe5];
 
-    let mut state = matrix::from_elems(4, 4, &state_elems);
-    let output = matrix::from_elems(4, 4, &output_elems);
+    let mut state = matrix::from_elems(4, 4, &state);
+    let output = matrix::from_elems(4, 4, &output);
 
     shift_rows(&mut state);
 
@@ -348,24 +353,57 @@ fn test_shift_rows() {
 
 #[test]
 fn test_mix_columns() {
-    let state_elems = [
+    let state = [
         0xd4, 0xe0, 0xb8, 0x1e,
         0xbf, 0xb4, 0x41, 0x27, 
         0x5d, 0x52, 0x11, 0x98, 
         0x30, 0xae, 0xf1, 0xe5];
 
-    let output_elems = [
+    let output = [
         0x04, 0xe0, 0x48, 0x28,
         0x66, 0xcb, 0xf8, 0x06, 
         0x81, 0x19, 0xd3, 0x26, 
         0xe5, 0x9a, 0x7a, 0x4c];
 
-    let mut state = matrix::from_elems(4, 4, &state_elems);
-    let output = matrix::from_elems(4, 4, &output_elems);
+    let mut state = matrix::from_elems(4, 4, &state);
+    let output = matrix::from_elems(4, 4, &output);
 
     mix_columns(&mut state);
 
     print_matrix(&state);
+    print_matrix(&output);
+
+    assert!(output == state);
+}
+
+#[test]
+fn test_xor_matricies() {
+    let state = [
+        0x04, 0xe0, 0x48, 0x28,
+        0x66, 0xcb, 0xf8, 0x06, 
+        0x81, 0x19, 0xd3, 0x26, 
+        0xe5, 0x9a, 0x7a, 0x4c];
+
+    let output = [
+        0xa4, 0x68, 0x6b, 0x02,
+        0x9c, 0x9f, 0x5b, 0x6a, 
+        0x7f, 0x35, 0xea, 0x50, 
+        0xf2, 0x2b, 0x43, 0x49];
+
+    let round_key = [
+        0xa0, 0x88, 0x23, 0x2a,
+        0xfa, 0x54, 0xa3, 0x6c,
+        0xfe, 0x2c, 0x39, 0x76,
+        0x17, 0xb1, 0x39, 0x05];
+
+    let mut state = matrix::from_elems(4, 4, &state);
+    let output = matrix::from_elems(4, 4, &output);
+    let round_key = matrix::from_elems(4, 4, &round_key);
+
+    xor_matricies(&mut state, &round_key);
+
+    print_matrix(&state);
+    print_matrix(&round_key);
     print_matrix(&output);
 
     assert!(output == state);
