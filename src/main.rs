@@ -58,7 +58,7 @@ fn matrix_row_rotate(m: &mut Matrix<u8>, row: usize, iters: usize) {
             m.set(row, col, row_nums[col]);
         }
 
-        print_matrix(&m);
+        //print_matrix(&m);
     }
 }
 
@@ -117,10 +117,21 @@ fn mix_columns(state: &mut Matrix<u8>) {
 }
 
 fn xor_matricies(m1: &mut Matrix<u8>, m2: & Matrix<u8>) {
+    let v1 = m1.get_vec();
+    let v2 = m2.get_vec();
+    let length = m1.num_rows() * m1.num_cols();
+
+    let mut temp_vec = Vec::new();
+    let mut index = 0;
+
+    for i in 0..length {
+        temp_vec.push(v1[i] ^ v2[i]);
+    }
     for i in 0..m1.num_rows() {
-        for j in 0..m2.num_cols() {
-            let val = m1.get(i, j) ^ m2.get(i, j);
+        for j in 0..m1.num_cols() {
+            let val = temp_vec[index];
             m1.set(i, j, val);
+            index += 1;
         }
     }
 }
@@ -144,7 +155,7 @@ fn key_expansion(round_key: &mut Matrix<u8>, key: &Matrix<u8>) {
         if i % 4 == 0 {
             // Shift the 4 bytes in a word to the left once
             // [a0,a1,a2,a3] becomes [a1,a2,a3,a0]
-            matrix_row_rotate(&mut col, 1, 1);
+            matrix_row_rotate(&mut col, 0, 0);
 
             // Substitue the bytes within the column using the contents of the s-box
             sub_bytes(&mut col);
@@ -222,8 +233,9 @@ fn aes(data: &str, key: &str) -> String {
         let mut state: Matrix<u8>;
         if index + 16 > byte_array.len() {
             // Pad rest of matrix with zeros
-            let mut state_elem = [0u8, 16];
+            let mut state_elem = [0u8; 16];
             let padding = byte_array.len() - index;
+            //println!("index is {}, padding is {}, total len is {}, {:?}", index, padding, byte_array.len(), byte_array);
             for i in index..padding {
                 state_elem[i] = byte_array.as_bytes()[i + index];
             }
@@ -242,7 +254,7 @@ fn aes(data: &str, key: &str) -> String {
             break;
         }
     }
-    byte_array
+    encrypted_string
 }
 
 fn main() {
@@ -250,18 +262,29 @@ fn main() {
     let stdin = io::stdin();
 
     println!("😃 Type anything and press enter...");
-    for line in stdin.lock().lines() {
-        let input = line.unwrap();
+    let input = &mut String::new();
+    loop {
+        input.clear();
+        print!("> ");
+
+        #[allow(unused_must_use)]
+        {
+            io::stdout().flush();
+            stdin.read_line(input);
+        }
+
         if input == "" {
             println!("Empty input. Terminating...");
             break;
         }
-        println!("{}", aes(&input, &key));
+        let encrypted_string = aes(&input, &key);
+        println!("As hex: {}\n", encrypted_string.as_bytes().to_hex());
     }
 }
 
 // ------------ Tests ------------ //
 
+#[allow(dead_code)]
 fn print_matrix(m: &Matrix<u8>) {
     println!();
     for i in 0..m.num_rows() {
