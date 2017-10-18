@@ -1,11 +1,13 @@
 extern crate numrs;
-extern crate rustc_serialize;
+extern crate hex;
+extern crate openssl;
+
+use std::io::prelude::*;
 
 use std::io;
-use std::io::prelude::*;
+use hex::ToHex;
 use numrs::matrix;
 use numrs::matrix::Matrix;
-use rustc_serialize::hex::{ToHex};
 
 fn get_sbox() -> Matrix<u8> {
     let sbox = [
@@ -218,9 +220,8 @@ fn decode_and_append(state: &Matrix<u8>, string: &mut String) {
     }
 }
 
-fn aes(data: &str, key: &[u8]) -> String {
+fn aes(byte_array: &str, key: &[u8]) -> String {
     let mut encrypted_string = String::new();
-    let byte_array = data.as_bytes().to_hex();
 
     // Perform key expansion
     let key_matrix = matrix::from_elems(4, 4, key);
@@ -234,12 +235,12 @@ fn aes(data: &str, key: &[u8]) -> String {
         if index + 16 > byte_array.len() {
             // Pad rest of matrix with zeros
             state = matrix::from_elems(4, 4, &[0u8; 16]);
-            for j in 0..state.num_cols() {
-                for i in 0..state.num_rows() {
+            for i in 0..state.num_rows() {
+                for j in 0..state.num_cols() {
                     if index >= byte_array.len() {
                         break;
                     }
-                    state.set(i, j, byte_array.as_bytes()[index]);
+                    state.set(j, i, byte_array.as_bytes()[index]);
                     index += 1;
                 }
             }
@@ -247,7 +248,7 @@ fn aes(data: &str, key: &[u8]) -> String {
             state = matrix::from_elems(4, 4, &byte_array.as_bytes()[index..index+16]);
         }
 
-        println!("Encrypting matrix");
+        println!("Encrypting state block:");
         print_matrix(&state);
         encrypt_state_block(&mut state, &round_key);
         decode_and_append(&state, &mut encrypted_string);
@@ -263,7 +264,7 @@ fn aes(data: &str, key: &[u8]) -> String {
 }
 
 fn main() {
-    let key = &[0u8; 16];
+    let key = "0123456789abcdef".as_bytes();
     let stdin = io::stdin();
 
     println!("😃 Type anything and press enter...");
@@ -291,8 +292,6 @@ fn main() {
     }
 }
 
-// ------------ Tests ------------ //
-
 #[allow(dead_code)]
 fn print_matrix(m: &Matrix<u8>) {
     println!();
@@ -304,6 +303,8 @@ fn print_matrix(m: &Matrix<u8>) {
         println!("");
     }
 }
+
+// ------------ Tests ------------ //
 
 #[test]
 fn test_sub_bytes() {
@@ -411,4 +412,25 @@ fn test_xor_matricies() {
     print_matrix(&output);
 
     assert!(output == state);
+}
+
+#[test]
+fn test_enc_dec() {
+    use openssl::symm::*;
+    use openssl::symm::Mode::*;
+
+    let key = "0123456789abcdef";
+    let input = "hello";
+    let ciphertext = aes(&input, key.as_bytes());
+    let mut decrypted = &[0u8; input.len()];
+
+    // Decrypt the cipher
+    let decrypter = Crypter::new(aes_128_ecb(), Decrypt, key.as_bytes());
+    decrypter.pad(true);
+    decrypter.init(Decrypt, key.as_slice(), Vec::from_elem(16,0));
+
+    decrypter.update(ciphertext.as_bytes(), &mut decrypted);
+
+    println!("Input: {}\nKey: {}\nCipher: {}\nDecrypted: {}", input, key, ciphertext, decrypted);
+    assert!(false);
 }
