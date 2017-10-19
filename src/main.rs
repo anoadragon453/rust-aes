@@ -1,6 +1,6 @@
+extern crate crypto;
 extern crate numrs;
 extern crate hex;
-extern crate openssl;
 
 use std::io::prelude::*;
 
@@ -220,7 +220,7 @@ fn decode_and_append(state: &Matrix<u8>, string: &mut String) {
     }
 }
 
-fn aes(byte_array: &str, key: &[u8]) -> String {
+fn aes(byte_array: &[u8], key: &[u8]) -> String {
     let mut encrypted_string = String::new();
 
     // Perform key expansion
@@ -240,12 +240,12 @@ fn aes(byte_array: &str, key: &[u8]) -> String {
                     if index >= byte_array.len() {
                         break;
                     }
-                    state.set(j, i, byte_array.as_bytes()[index]);
+                    state.set(j, i, byte_array[index]);
                     index += 1;
                 }
             }
         } else {
-            state = matrix::from_elems(4, 4, &byte_array.as_bytes()[index..index+16]);
+            state = matrix::from_elems(4, 4, &byte_array[index..index+16]);
         }
 
         println!("Encrypting state block:");
@@ -287,7 +287,7 @@ fn main() {
         // Remove newline character from string
         input.pop();
 
-        let encrypted_string = aes(&input, key);
+        let encrypted_string = aes(input.as_bytes(), key);
         println!("Result: {}\n", encrypted_string.as_bytes().to_hex());
     }
 }
@@ -385,14 +385,14 @@ fn test_mix_columns() {
 fn test_xor_matricies() {
     let state = [
         0x04, 0xe0, 0x48, 0x28,
-        0x66, 0xcb, 0xf8, 0x06, 
-        0x81, 0x19, 0xd3, 0x26, 
+        0x66, 0xcb, 0xf8, 0x06,
+        0x81, 0x19, 0xd3, 0x26,
         0xe5, 0x9a, 0x7a, 0x4c];
 
     let output = [
         0xa4, 0x68, 0x6b, 0x02,
-        0x9c, 0x9f, 0x5b, 0x6a, 
-        0x7f, 0x35, 0xea, 0x50, 
+        0x9c, 0x9f, 0x5b, 0x6a,
+        0x7f, 0x35, 0xea, 0x50,
         0xf2, 0x2b, 0x43, 0x49];
 
     let round_key = [
@@ -416,21 +416,27 @@ fn test_xor_matricies() {
 
 #[test]
 fn test_enc_dec() {
-    use openssl::symm::*;
-    use openssl::symm::Mode::*;
+    use crypto::aessafe::AesSafe128EncryptorX8;
+    use crypto::aessafe::AesSafe128DecryptorX8;
+    use crypto::symmetriccipher::BlockEncryptorX8;
+    use crypto::symmetriccipher::BlockDecryptorX8;
 
     let key = "0123456789abcdef";
-    let input = "hello";
-    let ciphertext = aes(&input, key.as_bytes());
-    let mut decrypted = &[0u8; input.len()];
+    let input = "hellohellohello0";
+    let mut encrypted = vec![0u8; 999];
+    let mut decrypted = vec![0u8; input.len()];
+
+    // Encrypt the plaintext with stdlib
+    let encryptor = AesSafe128EncryptorX8::new(key.as_bytes());
+    encryptor.encrypt_block_x8(input.as_bytes(), &mut encrypted);
+
+    // Encrypt the plaintext with our library
+    let our_ciphertext = aes(input.as_bytes(), key.as_bytes());
 
     // Decrypt the cipher
-    let decrypter = Crypter::new(aes_128_ecb(), Decrypt, key.as_bytes());
-    decrypter.pad(true);
-    decrypter.init(Decrypt, key.as_slice(), Vec::from_elem(16,0));
+    let decryptor = AesSafe128DecryptorX8::new(key.as_bytes());
+    decryptor.decrypt_block_x8(our_ciphertext.as_bytes(), &mut decrypted);
 
-    decrypter.update(ciphertext.as_bytes(), &mut decrypted);
-
-    println!("Input: {}\nKey: {}\nCipher: {}\nDecrypted: {}", input, key, ciphertext, decrypted);
-    assert!(false);
+    println!("Input: {}\nKey: {}\nStdCipher: {:?}\nOurCipher: {}\nDecrypted: {:?}", input, key, encrypted, our_ciphertext, decrypted);
+    assert!(input.as_bytes() == decrypted.as_slice());
 }
