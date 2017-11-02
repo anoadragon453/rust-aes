@@ -141,10 +141,9 @@ fn xor_matricies(m1: &mut Matrix<u8>, m2: & Matrix<u8>) {
 fn key_expansion(round_key: &mut Matrix<u8>, key: &Matrix<u8>) {
     // The first round key is the key itself
     for i in 0..round_key.num_rows() {
-        round_key.set(0, i, key.get(0, i));
-        round_key.set(1, i, key.get(1, i));
-        round_key.set(2, i, key.get(2, i));
-        round_key.set(3, i, key.get(3, i));
+        for j in 0..round_key.num_rows() {
+            round_key.set(j, i, key.get(j, i));
+        }
     }
 
     // All other round keys are found from the previous round keys
@@ -157,13 +156,13 @@ fn key_expansion(round_key: &mut Matrix<u8>, key: &Matrix<u8>) {
         if i % 4 == 0 {
             // Shift the 4 bytes in a word to the left once
             // [a0,a1,a2,a3] becomes [a1,a2,a3,a0]
-            matrix_row_rotate(&mut col, 0, 0);
+            matrix_row_rotate(&mut col, 0, 1);
 
             // Substitue the bytes within the column using the contents of the s-box
             sub_bytes(&mut col);
 
             // xor the col with the respective rcon column
-            xor_matricies(&mut col, &get_rcon_col((i / 4) - 1));
+            xor_matricies(&mut col, &get_rcon_col((i / 4)));
         }
 
         // xor the col with the previous i-4 col of the round key
@@ -172,7 +171,38 @@ fn key_expansion(round_key: &mut Matrix<u8>, key: &Matrix<u8>) {
                                                   round_key.get(2, (i-4)),
                                                   round_key.get(3, (i-4))]);
         xor_matricies(&mut col, &init_col);
+
+        // Insert the col into the round_key matrix
+        for j in 0..round_key.num_rows() {
+            round_key.set(j, i, col.get(0, j));
+        }
     }
+}
+
+#[test]
+fn test_key_expansion() {
+    let key = &[0x2b, 0x28, 0xab, 0x09, 0x7e, 0xae, 0xf7, 0xcf, 0x15, 0xd2, 0x15, 0x4f, 0x16, 0xa6, 0x88, 0x3c];
+    let key = matrix::from_elems(4, 4, key);
+
+    let expected_output = &[0x2b, 0x28, 0xab, 0x09, 0xa0, 0x88, 0x23, 0x2a, 0xf2, 0x7a, 0x59, 0x73,
+    0x3d, 0x47, 0x1e, 0x6d, 0xef, 0xa8, 0xb6, 0xdb, 0xd4, 0x7c, 0xca, 0x11, 0x6d, 0x11, 0xdb, 0xca,
+    0x4e, 0x5f, 0x84, 0x4e, 0xea, 0xb5, 0x31, 0x7f, 0xac, 0x19, 0x28, 0x57, 0x7e, 0xae, 0xf7, 0xcf,
+    0xfa, 0x54, 0xa3, 0x6c, 0xc2, 0x96, 0x35, 0x59, 0x80, 0x16, 0x23, 0x7a, 0x44, 0x52, 0x71, 0x0b,
+    0xd1, 0x83, 0xf2, 0xf9, 0x88, 0x0b, 0xf9, 0x00, 0x54, 0x5f, 0xa6, 0xa6, 0xd2, 0x8d, 0x2b, 0x8d,
+    0x77, 0xfa, 0xd1, 0x5c, 0x15, 0xd2, 0x15, 0x4f, 0xfe, 0x2c, 0x39, 0x76, 0x95, 0xb9, 0x80, 0xf6,
+    0x47, 0xfe, 0x7e, 0x88, 0xa5, 0x5b, 0x25, 0xad, 0xc6, 0x9d, 0xb8, 0x15, 0xa3, 0x3e, 0x86, 0x93,
+    0xf7, 0xc9, 0x4f, 0xdc, 0x73, 0xba, 0xf5, 0x29, 0x66, 0xdc, 0x29, 0x00, 0x16, 0xa6, 0x88, 0x3c,
+    0x17, 0xb1, 0x39, 0x05, 0xf2, 0x43, 0x7a, 0x7f, 0x7d, 0x3e, 0x44, 0x3b, 0x41, 0x7f, 0x3b, 0x00,
+    0xf8, 0x87, 0xbc, 0xbc, 0x7a, 0xfd, 0x41, 0xfd, 0x0e, 0xf3, 0xb2, 0x4f, 0x21, 0xd2, 0x60, 0x2f,
+    0xf3, 0x21, 0x41, 0x6e];
+
+    let expected_output = matrix::from_elems(4, 4*10, expected_output);
+
+    let mut round_key = Matrix::new(4, 4*10, 0u8);
+    key_expansion(&mut round_key, &key);
+
+    print_matrix(&round_key);
+    assert!(round_key == expected_output);
 }
 
 /*
@@ -218,6 +248,21 @@ fn decode_and_append(state: &Matrix<u8>, string: &mut String) {
             string.push(state.get(j, i) as char);
         }
     }
+}
+
+#[test]
+fn test_decode_and_append() {
+    let state = &[0x68,0x65,0x6c,0x6c,0x6f,0x20,0x74,0x68,0x65,0x72,0x65,0x20,0x73,0x69,0x72,0x21];
+    let state = &mut matrix::from_elems(4, 4, state);
+    state.transpose();
+
+    let output = &mut String::new();
+    decode_and_append(state, output);
+
+    let desired_output = "hello there sir!";
+
+    println!("Output is {}", output);
+    assert!(output == desired_output);
 }
 
 fn aes(byte_array: &[u8], key: &[u8]) -> String {
@@ -416,27 +461,24 @@ fn test_xor_matricies() {
 
 #[test]
 fn test_enc_dec() {
-    use crypto::aessafe::AesSafe128EncryptorX8;
-    use crypto::aessafe::AesSafe128DecryptorX8;
-    use crypto::symmetriccipher::BlockEncryptorX8;
-    use crypto::symmetriccipher::BlockDecryptorX8;
-
     let key = "0123456789abcdef";
-    let input = "hellohellohello0";
-    let mut encrypted = vec![0u8; 999];
-    let mut decrypted = vec![0u8; input.len()];
-
-    // Encrypt the plaintext with stdlib
-    let encryptor = AesSafe128EncryptorX8::new(key.as_bytes());
-    encryptor.encrypt_block_x8(input.as_bytes(), &mut encrypted);
+    let input = "hello there sir!";
+    let expected_output = &[0xbb, 0x0e, 0x44, 0x8b, 0x3d, 0xba, 0x73, 0xc7, 0x00, 0x3e, 0x2c, 0x60, 0x81, 0xd0, 0x69, 0xa1];
 
     // Encrypt the plaintext with our library
-    let our_ciphertext = aes(input.as_bytes(), key.as_bytes());
+    let ciphertext = aes(input.as_bytes(), key.as_bytes());
 
     // Decrypt the cipher
-    let decryptor = AesSafe128DecryptorX8::new(key.as_bytes());
-    decryptor.decrypt_block_x8(our_ciphertext.as_bytes(), &mut decrypted);
-
-    println!("Input: {}\nKey: {}\nStdCipher: {:?}\nOurCipher: {}\nDecrypted: {:?}", input, key, encrypted, our_ciphertext, decrypted);
-    assert!(input.as_bytes() == decrypted.as_slice());
+    println!("Input: {}\nKey: {}\n\nOur Cipher:", input, key);
+    for i in ciphertext.as_bytes().iter() {
+        print!("{:02x}|", i);
+    }
+    println!();
+    println!("Expected Cipher:");
+    for i in expected_output.iter() {
+        print!("{:02x}|", i);
+    }
+    println!();
+    println!();
+    assert!(ciphertext.as_bytes() == expected_output);
 }
