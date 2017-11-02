@@ -311,6 +311,12 @@ fn test_encrypted_append () {
 fn aes(byte_array: &[u8], key: &[u8]) -> String {
     let mut encrypted_string = String::new();
 
+    println!("Got {}: ", byte_array.len());
+    for i in byte_array.iter() {
+        print!("{:02x} ", i);
+    }
+    println!();
+
     // Perform key expansion
     let key_matrix = matrix::from_elems(4, 4, key);
     let mut round_key = Matrix::new(4, 4*10, 0u8);
@@ -334,6 +340,7 @@ fn aes(byte_array: &[u8], key: &[u8]) -> String {
             }
         } else {
             state = matrix::from_elems(4, 4, &byte_array[index..index+16]);
+            state.transpose();
         }
 
         println!("Encrypting state block:");
