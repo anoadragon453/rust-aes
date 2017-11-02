@@ -1,11 +1,9 @@
 extern crate crypto;
 extern crate numrs;
-extern crate hex;
 
 use std::io::prelude::*;
 
 use std::io;
-use hex::ToHex;
 use numrs::matrix;
 use numrs::matrix::Matrix;
 
@@ -242,22 +240,22 @@ fn encrypt_state_block(state: &mut Matrix<u8>, round_key: &Matrix<u8>) {
     }
 }
 
-fn decode_and_append(state: &Matrix<u8>, string: &mut String) {
+fn encrypted_append(string: &mut String, state: &Matrix<u8>) {
     for i in 0..state.num_rows() {
         for j in 0..state.num_cols() {
-            string.push(state.get(j, i) as char);
+            string.push_str(&format!("{:02x} ", state.get(j, i)));
         }
     }
 }
 
 #[test]
-fn test_decode_and_append() {
+fn test_encrypted_append () {
     let state = &[0x68,0x65,0x6c,0x6c,0x6f,0x20,0x74,0x68,0x65,0x72,0x65,0x20,0x73,0x69,0x72,0x21];
     let state = &mut matrix::from_elems(4, 4, state);
     state.transpose();
 
     let output = &mut String::new();
-    decode_and_append(state, output);
+    encrypted_append(output, state);
 
     let desired_output = "hello there sir!";
 
@@ -295,8 +293,15 @@ fn aes(byte_array: &[u8], key: &[u8]) -> String {
 
         println!("Encrypting state block:");
         print_matrix(&state);
+        println!();
+
         encrypt_state_block(&mut state, &round_key);
-        decode_and_append(&state, &mut encrypted_string);
+
+        println!("State block is now encrypted:");
+        print_matrix(&state);
+        println!();
+
+        encrypted_append(&mut encrypted_string, &state);
 
         index += 16;
 
@@ -333,7 +338,7 @@ fn main() {
         input.pop();
 
         let encrypted_string = aes(input.as_bytes(), key);
-        println!("Result: {}\n", encrypted_string.as_bytes().to_hex());
+        println!("Result: {}\n", encrypted_string);
     }
 }
 
@@ -463,22 +468,12 @@ fn test_xor_matricies() {
 fn test_enc_dec() {
     let key = "0123456789abcdef";
     let input = "hello there sir!";
-    let expected_output = &[0xbb, 0x0e, 0x44, 0x8b, 0x3d, 0xba, 0x73, 0xc7, 0x00, 0x3e, 0x2c, 0x60, 0x81, 0xd0, 0x69, 0xa1];
+    let expected_output = "bb 0e 44 8b 3d ba 73 c7 00 3e 2c 60 81 d0 69 a1";
 
     // Encrypt the plaintext with our library
     let ciphertext = aes(input.as_bytes(), key.as_bytes());
 
     // Decrypt the cipher
-    println!("Input: {}\nKey: {}\n\nOur Cipher:", input, key);
-    for i in ciphertext.as_bytes().iter() {
-        print!("{:02x}|", i);
-    }
-    println!();
-    println!("Expected Cipher:");
-    for i in expected_output.iter() {
-        print!("{:02x}|", i);
-    }
-    println!();
-    println!();
-    assert!(ciphertext.as_bytes() == expected_output);
+    println!("Input: {}\nKey: {}\nOur own Cipher: {}\nCorrect Cipher: {}", input, key, ciphertext, expected_output);
+    assert!(ciphertext == expected_output);
 }
