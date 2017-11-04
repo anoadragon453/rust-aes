@@ -388,8 +388,8 @@ fn main() {
             }
         } else if !arg.ends_with("/aes") {
             key = arg.clone();
-            if key.len() % 16 != 0 {
-                println!("Error: Key's length must be multiple of 16. Length {} is not.", key.len());
+            if key.len() != 16 {
+                println!("Error: Key's length must be 16. Length {} is not.", key.len());
                 return;
             }
         }
@@ -558,14 +558,8 @@ fn test_enc_dec() {
     let input = "hello there sir!";
     let expected_output = "bb 0e 44 8b 3d ba 73 c7 00 3e 2c 60 81 d0 69 a1";
 
-    // DEBUG
-    let key = &[0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
-    let input = &[0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34];
-    let expected_output = "bb 0e 44 8b 3d ba 73 c7 00 3e 2c 60 81 d0 69 a1";
-
     // Encrypt the plaintext with our library
-    //let ciphertext = aes(input.as_bytes(), key.as_bytes());
-    let ciphertext = aes(input, key);
+    let ciphertext = aes(input.as_bytes(), key.as_bytes());
 
     // Decrypt the cipher
     //println!("Input: {}\nKey: {}\nOur own Cipher: {}\nCorrect Cipher: {}", input, key, ciphertext, expected_output);
