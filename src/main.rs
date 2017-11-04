@@ -1,11 +1,13 @@
-extern crate crypto;
 extern crate numrs;
 
 use std::io::prelude::*;
 
 use std::io;
+use std::env;
 use numrs::matrix;
 use numrs::matrix::Matrix;
+
+static mut DEBUG_PRINTING: bool = false;
 
 fn get_sbox() -> Matrix<u8> {
     let sbox = [
@@ -57,8 +59,6 @@ fn matrix_row_rotate(m: &mut Matrix<u8>, row: usize, iters: usize) {
         for col in 0..4 {
             m.set(row, col, row_nums[col]);
         }
-
-        //print_matrix(&m);
     }
 }
 
@@ -236,8 +236,7 @@ fn add_round_key(state: &mut Matrix<u8>, round_key: &Matrix<u8>, round: usize) {
         }
     }
 
-    println!("Chunk is:");
-    print_matrix(&round_key_chunk);
+    print_debug("Round Key chunk is:", &round_key_chunk);
 
     xor_matricies(state, &round_key_chunk);
 }
@@ -272,33 +271,26 @@ fn test_add_round_key() {
     assert!(state == expected_output);
 }
 
-// TODO: # Check with the video's input and key, see if it's output is correct. If it is, go
-// through the steps it shows and check where it goes wrong.
-// Print out the state at every step.
 fn encrypt_state_block(state: &mut Matrix<u8>, round_key: &Matrix<u8>) {
     // Initial round
     add_round_key(state, round_key, 0);
-    println!("After first AddRoundKey: ");
-    print_matrix(&state);
+    print_debug("After first AddRoundKey:", &state);
 
     // Intermediate and final round
     for round in 1..11 {
         sub_bytes(state);
-        println!("After SubBytes: ");
-        print_matrix(&state);
+        print_debug("After SubBytes:", &state);
 
         shift_rows(state);
-        println!("After ShiftRows: ");
-        print_matrix(&state);
+        print_debug("After ShiftRows: ", &state);
 
         if round != 10 {
             mix_columns(state);
-            println!("After MixColumns: ");
-            print_matrix(&state);
+            print_debug("After MixColumns: ", &state);
         }
+
         add_round_key(state, round_key, round);
-        println!("After AddRoundKey: ");
-        print_matrix(&state);
+        print_debug("After AddRoundKey: ", &state);
     }
 }
 
@@ -308,6 +300,7 @@ fn encrypted_append(string: &mut String, state: &Matrix<u8>) {
             string.push_str(&format!("{:02x} ", state.get(j, i)));
         }
     }
+    string.push_str("\n");
 }
 
 #[test]
@@ -329,26 +322,30 @@ fn test_encrypted_append () {
 fn aes(byte_array: &[u8], key: &[u8]) -> String {
     let mut encrypted_string = String::new();
 
-    println!("Got {}: ", byte_array.len());
-    for i in byte_array.iter() {
-        print!("{:02x} ", i);
-    }
-    println!();
+    unsafe {
+        if DEBUG_PRINTING {
+            println!("Got input with length of {}: ", byte_array.len());
+            for i in byte_array.iter() {
+                print!("{:02x} ", i);
+            }
+            println!();
 
-    println!("Key is:");
-    for i in key.iter() {
-        print!("{:02x}|", i);
+            println!("Key is:");
+            for i in key.iter() {
+                print!("{:02x} ", i);
+            }
+            println!();
+        }
     }
-    println!();
 
     // Perform key expansion
     let mut key_matrix = matrix::from_elems(4, 4, key);
     key_matrix.transpose();
+
     let mut round_key = Matrix::new(4, 4*11, 0u8);
     key_expansion(&mut round_key, &key_matrix);
 
-    println!("Got round key:");
-    print_matrix(&round_key);
+    print_debug("Got round key:", &round_key);
 
     // Loop through each 16 bytes of the provided string and encrypt separately
     let mut index = 0;
@@ -366,17 +363,11 @@ fn aes(byte_array: &[u8], key: &[u8]) -> String {
             }
         }
 
-        println!("Encrypting state block:");
-        print_matrix(&state);
-
+        print_debug("Encrypting state block:", &state);
         encrypt_state_block(&mut state, &round_key);
-
-        println!("State block is now encrypted:");
-        print_matrix(&state);
+        print_debug("State block is now encrypted:", &state);
 
         encrypted_append(&mut encrypted_string, &state);
-
-        index += 16;
 
         // Break once we've reached the end of the string
         if index >= byte_array.len() {
@@ -387,9 +378,24 @@ fn aes(byte_array: &[u8], key: &[u8]) -> String {
 }
 
 fn main() {
-    let key = "0123456789abcdef".as_bytes();
+    let mut key = String::from("0123456789abcdef");
     let stdin = io::stdin();
 
+    for arg in env::args() {
+        if arg == "debug" {
+            unsafe {
+                DEBUG_PRINTING = true;
+            }
+        } else if !arg.ends_with("/aes") {
+            key = arg.clone();
+            if key.len() % 16 != 0 {
+                println!("Error: Key's length must be multiple of 16. Length {} is not.", key.len());
+                return;
+            }
+        }
+    }
+
+    println!("Andrew Morgan (2017) - CSE 178");
     println!("😃 Type anything and press enter...");
     let input = &mut String::new();
     loop {
@@ -410,8 +416,17 @@ fn main() {
         // Remove newline character from string
         input.pop();
 
-        let encrypted_string = aes(input.as_bytes(), key);
-        println!("Result: {}\n", encrypted_string);
+        let encrypted_string = aes(input.as_bytes(), key.as_bytes());
+        println!("\nResult: \n{}", encrypted_string);
+    }
+}
+
+fn print_debug(text: &str, matrix: &Matrix<u8>) {
+    unsafe {
+        if DEBUG_PRINTING {
+            println!("{}", text);
+            print_matrix(matrix);
+        }
     }
 }
 

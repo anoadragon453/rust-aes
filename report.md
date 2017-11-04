@@ -13,3 +13,7 @@ For hardware implementations of AES, storing the s-box on a chip is costly, so s
 Key expansion. Learned that you never actually use the first, 0x8d, thing of the RCON.
 
 You can also just generate the values from the rcon in real time, rather than storing it for use later. This is useful for chips with not much RAM. Same goes for the other stuff like the Sbox I think, but it's easier implementation to just store everything.
+
+---
+
+Environment variable was to allow debugging and allow my tool to show correct step-by-step for any input.
