@@ -145,7 +145,7 @@ fn key_expansion(round_key: &mut Matrix<u8>, key: &Matrix<u8>) {
     }
 
     // All other round keys are found from the previous round keys
-    for i in 4..4*10 {
+    for i in 4..4*11 {
         let mut col = matrix::from_elems(1, 4, &[round_key.get(0, (i-1)),
                                                  round_key.get(1, (i-1)),
                                                  round_key.get(2, (i-1)),
@@ -236,6 +236,9 @@ fn add_round_key(state: &mut Matrix<u8>, round_key: &Matrix<u8>, round: usize) {
         }
     }
 
+    println!("Chunk is:");
+    print_matrix(&round_key_chunk);
+
     xor_matricies(state, &round_key_chunk);
 }
 
@@ -246,7 +249,7 @@ fn test_add_round_key() {
     let key = matrix::from_elems(4, 4, key);
 
     // Perform key expansion to get the round_key
-    let mut round_key = Matrix::new(4, 4*10, 0u8);
+    let mut round_key = Matrix::new(4, 4*11, 0u8);
     key_expansion(&mut round_key, &key);
 
     // Create the state block to test with
@@ -260,27 +263,42 @@ fn test_add_round_key() {
     let expected_output = &[0xaa, 0x61, 0x82, 0x68, 0x8f, 0xdd, 0xd2, 0x32, 0x5f, 0xe3, 0x4a, 0x46, 0x03, 0xef, 0xd2, 0x9a];
     let expected_output = matrix::from_elems(4, 4, expected_output);
 
-    print!("State: ");
+    println!("State: ");
     print_matrix(&state);
-    println!();
 
-    print!("Expected output: ");
+    println!("Expected output: ");
     print_matrix(&expected_output);
-    println!();
 
     assert!(state == expected_output);
 }
 
+// TODO: # Check with the video's input and key, see if it's output is correct. If it is, go
+// through the steps it shows and check where it goes wrong.
+// Print out the state at every step.
 fn encrypt_state_block(state: &mut Matrix<u8>, round_key: &Matrix<u8>) {
     // Initial round
     add_round_key(state, round_key, 0);
+    println!("After first AddRoundKey: ");
+    print_matrix(&state);
 
     // Intermediate and final round
-    for round in 0..10 {
+    for round in 1..11 {
         sub_bytes(state);
+        println!("After SubBytes: ");
+        print_matrix(&state);
+
         shift_rows(state);
-        if round != 9 {mix_columns(state);}
+        println!("After ShiftRows: ");
+        print_matrix(&state);
+
+        if round != 10 {
+            mix_columns(state);
+            println!("After MixColumns: ");
+            print_matrix(&state);
+        }
         add_round_key(state, round_key, round);
+        println!("After AddRoundKey: ");
+        print_matrix(&state);
     }
 }
 
@@ -317,41 +335,44 @@ fn aes(byte_array: &[u8], key: &[u8]) -> String {
     }
     println!();
 
+    println!("Key is:");
+    for i in key.iter() {
+        print!("{:02x}|", i);
+    }
+    println!();
+
     // Perform key expansion
-    let key_matrix = matrix::from_elems(4, 4, key);
-    let mut round_key = Matrix::new(4, 4*10, 0u8);
+    let mut key_matrix = matrix::from_elems(4, 4, key);
+    key_matrix.transpose();
+    let mut round_key = Matrix::new(4, 4*11, 0u8);
     key_expansion(&mut round_key, &key_matrix);
+
+    println!("Got round key:");
+    print_matrix(&round_key);
 
     // Loop through each 16 bytes of the provided string and encrypt separately
     let mut index = 0;
     loop {
         let mut state: Matrix<u8>;
-        if index + 16 > byte_array.len() {
-            // Pad rest of matrix with zeros
-            state = matrix::from_elems(4, 4, &[0u8; 16]);
-            for i in 0..state.num_rows() {
-                for j in 0..state.num_cols() {
-                    if index >= byte_array.len() {
-                        break;
-                    }
-                    state.set(j, i, byte_array[index]);
-                    index += 1;
+        // Pad rest of matrix with zeros
+        state = matrix::from_elems(4, 4, &[0u8; 16]);
+        for i in 0..state.num_rows() {
+            for j in 0..state.num_cols() {
+                if index >= byte_array.len() {
+                    break;
                 }
+                state.set(j, i, byte_array[index]);
+                index += 1;
             }
-        } else {
-            state = matrix::from_elems(4, 4, &byte_array[index..index+16]);
-            state.transpose();
         }
 
         println!("Encrypting state block:");
         print_matrix(&state);
-        println!();
 
         encrypt_state_block(&mut state, &round_key);
 
         println!("State block is now encrypted:");
         print_matrix(&state);
-        println!();
 
         encrypted_append(&mut encrypted_string, &state);
 
@@ -396,7 +417,6 @@ fn main() {
 
 #[allow(dead_code)]
 fn print_matrix(m: &Matrix<u8>) {
-    println!();
     for i in 0..m.num_rows() {
         print!("|");
         for j in 0..m.num_cols() {
@@ -404,6 +424,7 @@ fn print_matrix(m: &Matrix<u8>) {
         }
         println!("");
     }
+    println!();
 }
 
 // ------------ Tests ------------ //
@@ -522,10 +543,16 @@ fn test_enc_dec() {
     let input = "hello there sir!";
     let expected_output = "bb 0e 44 8b 3d ba 73 c7 00 3e 2c 60 81 d0 69 a1";
 
+    // DEBUG
+    let key = &[0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c];
+    let input = &[0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34];
+    let expected_output = "bb 0e 44 8b 3d ba 73 c7 00 3e 2c 60 81 d0 69 a1";
+
     // Encrypt the plaintext with our library
-    let ciphertext = aes(input.as_bytes(), key.as_bytes());
+    //let ciphertext = aes(input.as_bytes(), key.as_bytes());
+    let ciphertext = aes(input, key);
 
     // Decrypt the cipher
-    println!("Input: {}\nKey: {}\nOur own Cipher: {}\nCorrect Cipher: {}", input, key, ciphertext, expected_output);
+    //println!("Input: {}\nKey: {}\nOur own Cipher: {}\nCorrect Cipher: {}", input, key, ciphertext, expected_output);
     assert!(ciphertext == expected_output);
 }
