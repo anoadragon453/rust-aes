@@ -48,17 +48,13 @@ fn get_rcon_col(col: usize) -> Matrix<u8> {
  * amount of iterations from left-to-right
  */
 fn matrix_row_rotate(m: &mut Matrix<u8>, row: usize, iters: usize) {
-    // Reduce the amount of iterations to a value between 0-3 inclusive
-    let iterations = iters % 4;
+    // Move the first item to the last place, and shift everything left.
+    let row_nums = [m.get(row,(0 + iters) % 4), m.get(row,(1 + iters) % 4), 
+                    m.get(row,(2 + iters) % 4), m.get(row,(3 + iters) % 4)];
 
-    for _ in 0..iterations {
-        // Move the first item to the last place, and shift everything left.
-        let row_nums = [m.get(row,1), m.get(row,2), m.get(row,3), m.get(row,0)];
-
-        // Place the shifted row_nums number back in
-        for col in 0..4 {
-            m.set(row, col, row_nums[col]);
-        }
+    // Place the shifted row_nums number back in
+    for col in 0..4 {
+        m.set(row, col, row_nums[col]);
     }
 }
 
